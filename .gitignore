@@ -1,0 +1,10 @@
+silo
+*.o
+*.a
+test/runner
+bench/runner
+*.db
+*.wal
+*.log
+build/
+out/
