@@ -4,11 +4,10 @@
 #include "../src/crypto/sic.h"
 
 #include <cstdlib>
-#include <ctime>
 #include <filesystem>
 
 TEST_CASE("WAL append and read back") {
-  std::string dir = "/tmp/silo_wal_test_" + std::to_string(std::time(nullptr));
+  std::string dir = test_dir("wal_test");
   std::filesystem::create_directories(dir);
 
   silo::storage::WAL wal;
@@ -34,7 +33,7 @@ TEST_CASE("WAL append and read back") {
 }
 
 TEST_CASE("WAL crash recovery replay") {
-  std::string dir = "/tmp/silo_wal_replay_" + std::to_string(std::time(nullptr));
+  std::string dir = test_dir("wal_replay");
 
   {
     silo::storage::StorageEngine engine;

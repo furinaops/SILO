@@ -6,12 +6,11 @@
 
 #include <cmath>
 #include <cstdlib>
-#include <ctime>
 #include <filesystem>
 
 TEST_CASE("Cosine similarity top result matches closest vector") {
   silo::storage::StorageEngine engine;
-  std::string dir = "/tmp/silo_test_search_" + std::to_string(std::time(nullptr));
+  std::string dir = test_dir("search");
   engine.create(dir);
 
   // Insert a vector

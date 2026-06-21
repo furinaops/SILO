@@ -4,12 +4,11 @@
 #include "../src/crypto/sic.h"
 
 #include <cstdlib>
-#include <ctime>
 #include <filesystem>
 
 TEST_CASE("Store and load vector") {
   silo::storage::StorageEngine engine;
-  std::string dir = "/tmp/silo_test_vector_" + std::to_string(std::time(nullptr));
+  std::string dir = test_dir("vector");
   engine.create(dir);
 
   silo::storage::Record rec;
@@ -34,7 +33,7 @@ TEST_CASE("Store and load vector") {
 
 TEST_CASE("Store multiple vectors and load_all") {
   silo::storage::StorageEngine engine;
-  std::string dir = "/tmp/silo_test_store_all_" + std::to_string(std::time(nullptr));
+  std::string dir = test_dir("store_all");
   engine.create(dir);
 
   for (int i = 0; i < 10; ++i) {

@@ -3,12 +3,11 @@
 #include "../src/crypto/sic.h"
 
 #include <cstdlib>
-#include <ctime>
 #include <filesystem>
 
 TEST_CASE("Tombstone marks record as deleted") {
   silo::storage::StorageEngine engine;
-  std::string dir = "/tmp/silo_test_tombstone_" + std::to_string(std::time(nullptr));
+  std::string dir = test_dir("tombstone");
   engine.create(dir);
 
   silo::storage::Record rec;
@@ -32,7 +31,7 @@ TEST_CASE("Tombstone marks record as deleted") {
 
 TEST_CASE("Tombstoned records excluded from load_all") {
   silo::storage::StorageEngine engine;
-  std::string dir = "/tmp/silo_test_tombstone_all_" + std::to_string(std::time(nullptr));
+  std::string dir = test_dir("tombstone_all");
   engine.create(dir);
 
   std::vector<silo::crypto::SIC> sics;

@@ -121,7 +121,15 @@ silo::crypto::SIC parse_sic_hex(const std::string& hex) {
 } // namespace
 
 int main(int argc, char* argv[]) {
-  std::string db_dir = "silo.db";
+  std::string db_dir = [] {
+    const char* env = std::getenv("SILO_DB_DIR");
+    if (env) return std::string(env);
+    const char* xdg = std::getenv("XDG_DATA_HOME");
+    if (xdg) return std::string(xdg) + "/silo";
+    const char* home = std::getenv("HOME");
+    if (home) return std::string(home) + "/.local/share/silo";
+    return std::string("/tmp/silo");
+  }();
   if (argc > 1) db_dir = argv[1];
 
   silo::storage::StorageEngine engine;

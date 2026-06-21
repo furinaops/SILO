@@ -7,6 +7,19 @@
 
 namespace silo::cli {
 
+namespace {
+
+std::string unquote(const std::string& s) {
+  if (s.size() < 2) return s;
+  char q = s.front();
+  if ((q == '"' || q == '\'') && s.back() == q) {
+    return s.substr(1, s.size() - 2);
+  }
+  return s;
+}
+
+} // namespace
+
 ParsedCommand parse(const std::string& line) {
   ParsedCommand result;
   result.raw = line;
@@ -33,7 +46,16 @@ ParsedCommand parse(const std::string& line) {
     } else if (token.size() > 2 && token[0] == '-' && token[1] == '-') {
       key = token.substr(2);
     } else if (!key.empty()) {
-      result.args[key] = token;
+      std::string val = token;
+      char q = val.front();
+      if ((q == '"' || q == '\'') && val.back() != q) {
+        std::string rest;
+        while (iss >> rest) {
+          val += " " + rest;
+          if (rest.back() == q) break;
+        }
+      }
+      result.args[key] = unquote(val);
       key.clear();
     }
   }
