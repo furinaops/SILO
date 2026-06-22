@@ -1,4 +1,5 @@
 #include "../src/crypto/sic.h"
+#include "../src/index/cascade.h"
 #include "../src/query/engine.h"
 #include "../src/storage/engine.h"
 
@@ -13,6 +14,7 @@
 #include <iostream>
 #include <numeric>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -234,6 +236,110 @@ void bench_search_suite(const Dataset& ds, const std::string& db_dir) {
   }
 }
 
+// ─── CASCADE Index ────────────────────────────────────────────────────
+
+void bench_cascade(const Dataset& ds, const std::string& db_dir) {
+  std::cout << "\n──────────────────────────────────────────────────────\n";
+  std::cout << "CASCADE INDEX — dim=" << ds.dim << "  n=" << ds.count << "\n";
+  std::cout << "──────────────────────────────────────────────────────\n";
+
+  std::filesystem::remove_all(db_dir);
+  silo::storage::StorageEngine engine;
+  engine.create(db_dir);
+
+  for (size_t i = 0; i < ds.count; ++i) {
+    silo::storage::Record rec;
+    rec.id = ds.ids[i];
+    rec.timestamp = static_cast<uint64_t>(i);
+    rec.vector = ds.vectors[i];
+    rec.dimension = static_cast<uint32_t>(ds.dim);
+    auto sic = silo::crypto::SICUtils::generate(rec);
+    rec.sic = sic;
+    engine.store(rec, sic);
+  }
+
+  silo::query::QueryEngine qe(engine);
+
+  // ─── Build ──────────────────────────────────────────────────────────
+  auto t0 = Clock::now();
+  qe.build_cascade();
+  double build_ms = to_ms(Clock::now() - t0);
+
+  int trees = qe.cascade_num_trees();
+  size_t rss = current_rss_kb();
+  std::cout << "  Build       " << build_ms << " ms\n";
+  std::cout << "  Trees       " << trees << "\n";
+  std::cout << "  RSS after   " << rss << " KB\n";
+
+  if (!qe.cascade_is_built()) {
+    std::cout << "  SKIP (not built)\n";
+    return;
+  }
+
+  // ─── Warm-up ────────────────────────────────────────────────────────
+  for (int i = 0; i < 10; ++i) {
+    (void)qe.search_cascade(ds.vectors[i % ds.count], 10);
+  }
+
+  // ─── Warm cascade search ────────────────────────────────────────────
+  std::vector<double> cascade_ms;
+  for (int iter = 0; iter < 100; ++iter) {
+    auto& query = ds.vectors[iter % ds.count];
+    auto t0 = Clock::now();
+    (void)qe.search_cascade(query, 10);
+    cascade_ms.push_back(to_ms(Clock::now() - t0));
+  }
+  Stats cs = compute_stats(cascade_ms);
+
+  // ─── Warm brute-force search ────────────────────────────────────────
+  std::vector<double> bf_ms;
+  for (int iter = 0; iter < 100; ++iter) {
+    auto& query = ds.vectors[iter % ds.count];
+    auto t0 = Clock::now();
+    (void)qe.search(query, 10);
+    bf_ms.push_back(to_ms(Clock::now() - t0));
+  }
+  Stats bs = compute_stats(bf_ms);
+
+  double speedup = bs.p50 / cs.p50;
+
+  std::cout << "  Cascade     p50=" << cs.p50 << " ms  p95=" << cs.p95
+            << " ms  mean=" << cs.mean << " ms\n";
+  std::cout << "  Brute-force p50=" << bs.p50 << " ms  p95=" << bs.p95
+            << " ms  mean=" << bs.mean << " ms\n";
+  std::cout << "  Speedup     " << std::fixed << std::setprecision(2)
+            << speedup << "x  (p50 ratio)\n";
+
+  // ─── Recall@1, @5, @10 ──────────────────────────────────────────────
+  int r1 = 0, r5 = 0, r10 = 0, rtotal = 0;
+  for (int iter = 0; iter < 50; ++iter) {
+    auto& query = ds.vectors[iter % ds.count];
+    auto gt = qe.search(query, 10);
+    auto cand = qe.search_cascade(query, 10);
+
+    std::unordered_set<std::string> gt_sics;
+    for (auto& r : gt) gt_sics.insert(r.sic_hex);
+
+    for (size_t j = 0; j < cand.size(); ++j) {
+      if (gt_sics.count(cand[j].sic_hex)) {
+        if (j == 0) ++r1;
+        if (j < 5) ++r5;
+        ++r10;
+      }
+    }
+    rtotal++;
+  }
+  double recall1 = 100.0 * r1 / std::max(rtotal, 1);
+  double recall5 = 100.0 * r5 / std::max(rtotal * 5, 1);
+  double recall10 = 100.0 * r10 / std::max(rtotal * 10, 1);
+  std::cout << "  Recall@1    " << std::fixed << std::setprecision(1)
+            << recall1 << "%\n";
+  std::cout << "  Recall@5    " << std::setprecision(1)
+            << recall5 << "%\n";
+  std::cout << "  Recall@10   " << std::setprecision(1)
+            << recall10 << "%  (" << rtotal << " queries)\n";
+}
+
 // ─── Memory Usage ─────────────────────────────────────────────────────
 
 void bench_memory(const Dataset& ds, const std::string& db_dir) {
@@ -283,6 +389,7 @@ void run_suite(const std::string& data_path, const std::string& db_dir) {
 
   bench_insert(ds, db_dir);
   bench_search_suite(ds, db_dir);
+  bench_cascade(ds, db_dir);
   bench_memory(ds, db_dir);
 }
 

@@ -8,3 +8,6 @@ bench/runner
 *.log
 build/
 out/
+bench/data/*.bin
+bench/data/*.csv
+--help/

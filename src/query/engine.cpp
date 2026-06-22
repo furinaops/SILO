@@ -135,4 +135,43 @@ std::vector<SearchResult> QueryEngine::search(const std::vector<float>& query, i
   return results;
 }
 
+// ---------------------------------------------------------------------------
+// Cascade index build
+// ---------------------------------------------------------------------------
+
+void QueryEngine::build_cascade() {
+  cascade_records_ = engine_.load_all();
+  if (cascade_records_.empty()) return;
+
+  std::vector<std::vector<float>> vectors;
+  vectors.reserve(cascade_records_.size());
+  for (auto& rec : cascade_records_) {
+    vectors.push_back(rec.vector);
+  }
+
+  int dim = static_cast<int>(cascade_records_[0].dimension);
+  cascade_.build(vectors, dim);
+}
+
+// ---------------------------------------------------------------------------
+// Cascade search
+// ---------------------------------------------------------------------------
+
+std::vector<SearchResult> QueryEngine::search_cascade(
+    const std::vector<float>& query, int top_k) {
+  if (!cascade_.is_built()) return {};
+
+  auto cascade_results = cascade_.search(query, top_k);
+  std::vector<SearchResult> results;
+  results.reserve(cascade_results.size());
+
+  for (auto& cr : cascade_results) {
+    auto& rec = cascade_records_[cr.index];
+    results.push_back({rec.id,
+                       crypto::SICUtils::to_string(rec.sic),
+                       cr.score});
+  }
+  return results;
+}
+
 } // namespace silo::query
