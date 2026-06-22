@@ -45,14 +45,14 @@ test/runner: $(filter-out build/debug/main.o, $(DBG_OBJS)) $(filter-out build/de
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
 bench/runner: CXXFLAGS := $(BASE_FLAGS) -O2 -march=native -DNDEBUG
-bench/runner: $(filter-out src/main.o, $(REL_OBJS)) $(BENCH_OBJS) build/release/bench/bench_main.o
+bench/runner: $(filter-out build/release/main.o, $(REL_OBJS)) $(BENCH_OBJS) build/release/bench/bench_main.o
 	$(CXX) $(CXXFLAGS) -o $@ $^
 
 test: test/runner
 	LD_PRELOAD=$$(g++ -print-file-name=libasan.so) ./test/runner
 
-bench: bench/runner
-	./bench/runner
+bench: silo bench/runner
+	./bench/run_all.sh
 
 lint:
 	clang-tidy src/ -- -std=c++17
