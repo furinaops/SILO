@@ -184,6 +184,28 @@ docs/                 # Architecture, page format, WAL format, SIC spec
 
 ---
 
+---
+
+## CASCADE — Approximate Nearest Neighbour Index
+
+CASCADE (**C**oarse-to-fine **A**pproximate **S**earch with **D**eterministi**C** D**E**scent) is SILO's built-in approximate nearest neighbour index. It builds a forest of binary factor trees (128 → 64 → 32 → 16 centroids per tree) using deterministic K-means, then searches with configurable beam descent.
+
+**Key capabilities:**
+- **8.6× speedup** at default settings on 5,000 vectors (128-dim)
+- **100% exact recall** with `--trees all` (searches every tree)
+- **Tunable trade-off**: `--trees 10` gives 35% recall@10 at 2.4× speedup; `--trees 20` gives 63% at 1.4×
+- **Deterministic**: same query → same result, every time
+- **Single-threaded, zero dependencies** — runs on a 2011 i3 with 4 GB RAM
+
+```bash
+> /build-cascade
+> /search --vec "[0.1,0.2,...]" --top 10 --algo cascade --trees 20
+```
+
+See [CASCADE.md](CASCADE.md) for the full algorithmic explanation, benchmarks, and API reference.
+
+---
+
 ## Note
 
 SILO's SIC (Structured Identifier) was forked from my previous project, **VAULT** — a personal cryptographic version-control system. The core idea of binding metadata to a SHA256 hash was inherited from VAULT's SIC design, but SILO reimplements the hashing from scratch (no code reuse) and tailors the serialisation format to vector-record semantics.

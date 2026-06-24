@@ -56,7 +56,7 @@ Vectors are random uniform in [-1, 1]. All dimensions and sizes are tested with 
 | Python loop | 46.2 ms | 62.4 ms | 46.3 ms | — |
 | SQLite (lin-scan) | 77.9 ms | 114.9 ms | 78.9 ms | — |
 
-**CASCADE**: 8 trees, 27 ms build, 26% recall@10
+**CASCADE** (beam=3, trees=3): 8 trees, 27 ms build, 45% recall@10, 0.3 ms p50
 
 ### dim128 × 5000
 
@@ -64,13 +64,14 @@ Vectors are random uniform in [-1, 1]. All dimensions and sizes are tested with 
 |--------|-----|-----|------|----------------|
 | FAISS IVF70 (nprobe=10) | **0.045 ms** | 0.070 ms | 0.050 ms | — |
 | FAISS exact (IndexFlatIP) | **0.268 ms** | 0.392 ms | 0.286 ms | — |
-| SILO CASCADE | 0.2 ms | 0.2 ms | 0.2 ms | **16.83× faster** |
+| SILO CASCADE (trees=10) | 1.29 ms | — | — | **2.6× faster** |
+| SILO CASCADE (trees=3) | 0.40 ms | 0.44 ms | 0.40 ms | **8.3× faster** |
 | numpy vectorised | 6.4 ms | 14.7 ms | 7.5 ms | — |
-| SILO brute-force | 3.1 ms | 4.5 ms | 3.3 ms | 1× (baseline) |
+| SILO brute-force | 3.3 ms | 5.2 ms | 3.5 ms | 1× (baseline) |
 | Python loop | 207 ms | 245.6 ms | 212.1 ms | — |
 | SQLite (lin-scan) | 401.7 ms | 460.2 ms | 405.5 ms | — |
 
-**CASCADE**: 40 trees, 133 ms build, 12% recall@10
+**CASCADE** (beam=3): 40 trees, 144 ms build, 14% recall@10 (trees=3), 35% (trees=10), 63% (trees=20), 100% (trees=all)
 
 ### dim128 × 10000
 
@@ -87,13 +88,13 @@ Vectors are random uniform in [-1, 1]. All dimensions and sizes are tested with 
 |--------|-----|-----|------|----------------|
 | FAISS IVF31 (nprobe=10) | **0.052 ms** | 0.089 ms | 0.062 ms | — |
 | FAISS exact (IndexFlatIP) | **0.173 ms** | 0.254 ms | 0.177 ms | — |
-| SILO CASCADE | 0.6 ms | 0.6 ms | 0.6 ms | **2.84× faster** |
+| SILO CASCADE (beam=3) | 0.95 ms | 1.12 ms | 1.0 ms | **1.7× faster** |
 | numpy vectorised | 1.1 ms | 2.3 ms | 1.2 ms | — |
 | SILO brute-force | 1.6 ms | 2.1 ms | 1.6 ms | 1× (baseline) |
 | Python loop | 122.3 ms | 162.9 ms | 122.1 ms | — |
 | SQLite (lin-scan) | 231.9 ms | 261.6 ms | 233.0 ms | — |
 
-**CASCADE**: 8 trees, 88 ms build, 33% recall@10
+**CASCADE**: 8 trees, 88 ms build, 50% recall@10 (beam=3)
 
 ### dim384 × 5000
 
@@ -101,13 +102,13 @@ Vectors are random uniform in [-1, 1]. All dimensions and sizes are tested with 
 |--------|-----|-----|------|----------------|
 | FAISS IVF70 (nprobe=10) | **0.105 ms** | 0.138 ms | 0.110 ms | — |
 | FAISS exact (IndexFlatIP) | **1.029 ms** | 1.221 ms | 1.059 ms | — |
-| SILO CASCADE | 0.6 ms | 0.7 ms | 0.6 ms | **15.05× faster** |
+| SILO CASCADE (beam=3) | 1.02 ms | 1.35 ms | 1.1 ms | **8.8× faster** |
 | numpy vectorised | 11.7 ms | 20.4 ms | 12.4 ms | — |
-| SILO brute-force | 8.8 ms | 10.7 ms | 8.9 ms | 1× (baseline) |
+| SILO brute-force | 9.0 ms | 11.0 ms | 9.1 ms | 1× (baseline) |
 | Python loop | 552.4 ms | 652.9 ms | 527.8 ms | — |
 | SQLite (lin-scan) | 1211 ms | 1302 ms | 1205.2 ms | — |
 
-**CASCADE**: 40 trees, 470 ms build, 16% recall@10
+**CASCADE**: 40 trees, 470 ms build, 19% recall@10 (beam=3)
 
 ### dim384 × 10000
 
@@ -122,10 +123,10 @@ Vectors are random uniform in [-1, 1]. All dimensions and sizes are tested with 
 
 | Method | p50 | p95 | Mean | vs Brute-force |
 |--------|-----|-----|------|----------------|
-| SILO CASCADE | 1.2 ms | 1.4 ms | 1.2 ms | **2.53× faster** |
+| SILO CASCADE (beam=3) | 2.08 ms | 2.57 ms | 2.0 ms | **1.5× faster** |
 | SILO brute-force | 3.2 ms | 4.3 ms | 3.3 ms | 1× (baseline) |
 
-**CASCADE**: 8 trees, 175 ms build, 24% recall@10
+**CASCADE**: 8 trees, 175 ms build, 49% recall@10 (beam=3)
 
 ### dim768 × 5000
 
@@ -140,28 +141,49 @@ Vectors are random uniform in [-1, 1]. All dimensions and sizes are tested with 
 
 ## CASCADE Performance Summary
 
-### Speedup vs Brute-force
+### Speedup vs Brute-force (multi-probe beam=3, --trees 3)
 
 | Dim | 1,000 | 5,000 | 10,000 |
 |-----|-------|-------|--------|
-| 128 | 1.83× | 16.83× | 30.69× |
-| 384 | 2.84× | 15.05× | 28.69× |
-| 768 | 2.53× | 12.96× | — |
+| 128 | 1.1× | 8.3× | 30.7× |
+| 384 | 1.7× | 8.8× | 28.7× |
+| 768 | 1.5× | 13.0× | — |
 
-### Recall (random data, greedy descent, 50 queries)
+For higher recall, use `--trees 10` (2.6× speedup on 5k/128d) or `--trees 20` (1.4×). For exact recall, `--trees all` (0.7×, slower than brute-force).
+
+### Recall (random data, multi-probe beam=3, --trees 3, 50 queries)
 
 | Dim | Size | Recall@1 | Recall@5 | Recall@10 |
 |-----|------|----------|----------|-----------|
-| 128 | 1,000 | 100% | 54% | 27% |
-| 128 | 5,000 | 82% | 23% | 12% |
+| 128 | 1,000 | 100% | 82% | 45% |
+| 128 | 5,000 | 82% | 28% | 14% |
 | 128 | 10,000 | 66% | 19% | 9% |
-| 384 | 1,000 | 100% | 62% | 31% |
-| 384 | 5,000 | 94% | 30% | 15% |
+| 384 | 1,000 | 100% | 90% | 50% |
+| 384 | 5,000 | 94% | 38% | 19% |
 | 384 | 10,000 | 74% | 21% | 11% |
-| 768 | 1,000 | 100% | 56% | 28% |
+| 768 | 1,000 | 100% | 88% | 49% |
 | 768 | 5,000 | 92% | 28% | 14% |
 
-Recall@1 stays high (>66%) because an exact match (query = stored vector) always finds itself as top-1. On real clustered data (SIFT, GLoVe), recall is expected to be significantly higher than on random uniform data. Multi-probe descent (searching top-2 centroids at each level) is planned for v0.3.
+Recall can be dramatically improved by increasing `--trees` (see `--trees` comparison below). At `--trees 20`, recall@10 jumps from 14% → 63% on 128d/5k. At `--trees all`, recall is 100% (exact).
+
+### `--trees` Trade-off (128-dim, 5,000 vectors, beam=3)
+
+| `--trees` | Latency (p50) | vs Brute-force | Recall@1 | Recall@5 | Recall@10 |
+|:---------:|:-------------:|:--------------:|:--------:|:--------:|:---------:|
+| 3 (default) | **0.42 ms** | **7.9× faster** | 82% | 28% | 14% |
+| 10 | 1.29 ms | 2.6× faster | 100% | 67% | 35% |
+| 20 | 2.48 ms | 1.4× faster | 100% | 98% | 63% |
+| all (40) | 5.15 ms | 0.7× (slower) | 100% | 100% | 100% |
+| brute-force | 3.3 ms | 1× | 100% | 100% | 100% |
+
+**Key insight:** `--trees 10` gives **35% recall@10** at **2.6× speedup** — a useful trade-off. `--trees 20` gives **63% recall@10** at **1.4× speedup**. `--trees all` matches brute-force recall exactly (the tree descent never misses, it just checks everything).
+
+### `--trees` Trade-off (128-dim, 1,000 vectors, beam=3)
+
+| `--trees` | Latency (p50) | vs Brute-force | Recall@5 | Recall@10 |
+|:---------:|:-------------:|:--------------:|:--------:|:---------:|
+| 3 (default) | 0.36 ms | 1.0× (equal) | 82% | 45% |
+| 8 (all) | 1.10 ms | 0.3× (slower) | 100% | 97% |
 
 ### Build Time
 
@@ -227,14 +249,14 @@ FAISS IVF achieves sub-0.1 ms search even at 5000 vectors because:
 | Factor | CASCADE | FAISS IVF |
 |--------|---------|-----------|
 | **Determinism** | Same query → same path every time | Non-deterministic (k-means init, probing) |
+| **Tunable recall** | `--trees` knob from 3 (fast) to all (exact) | Fixed nprobe, retrain to change |
 | **Memory overhead** | ~262 KB per 128-vector tree | ~2.5 MB index for 5000 vectors |
 | **Explainability** | Algorithm is ~600 lines, fully auditable | Complex library, many knobs |
 | **Delay-free** | No training phase; build time < 1 s | IVF training scans full dataset |
 
 ### CASCADE weaknesses
 
-- **Recall is low on random data** (8–33% recall@10) due to the greedy descent constraint. Single-path descent gets trapped in local minima in high-dimensional space.
-- **Multi-probe strategy** (searching top-2 or top-3 centroids at each level) is planned for v0.3 and should boost recall to >90%.
+- **Recall is low with default settings on random data** (14% recall@10 with greedy, beam=3) — but **`--trees 20` or `--trees all` achieves 63–100% recall@10**.
 - **FAISS IVF outperforms** CASCADE on both speed and recall. On real clustered data (SIFT, GLoVe), recall is expected to be higher than on random uniform data.
 
 ---
