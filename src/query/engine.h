@@ -23,7 +23,7 @@ class QueryEngine {
   std::vector<SearchResult> search(const std::vector<float>& query, int top_k, bool use_cosine = true);
 
   void build_cascade();
-  std::vector<SearchResult> search_cascade(const std::vector<float>& query, int top_k);
+  std::vector<SearchResult> search_cascade(const std::vector<float>& query, int top_k, int num_trees = 3, int beam_width = 3);
   bool cascade_is_built() const { return cascade_.is_built(); }
   int cascade_num_trees() const { return cascade_.num_trees(); }
   int cascade_total_vectors() const { return cascade_.total_vectors(); }

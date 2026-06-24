@@ -303,41 +303,106 @@ void bench_cascade(const Dataset& ds, const std::string& db_dir) {
 
   double speedup = bs.p50 / cs.p50;
 
-  std::cout << "  Cascade     p50=" << cs.p50 << " ms  p95=" << cs.p95
+  std::cout << "  Cascade (beam=3) p50=" << cs.p50 << " ms  p95=" << cs.p95
             << " ms  mean=" << cs.mean << " ms\n";
-  std::cout << "  Brute-force p50=" << bs.p50 << " ms  p95=" << bs.p95
+  std::cout << "  Brute-force     p50=" << bs.p50 << " ms  p95=" << bs.p95
             << " ms  mean=" << bs.mean << " ms\n";
-  std::cout << "  Speedup     " << std::fixed << std::setprecision(2)
+  std::cout << "  Speedup         " << std::fixed << std::setprecision(2)
             << speedup << "x  (p50 ratio)\n";
 
-  // ─── Recall@1, @5, @10 ──────────────────────────────────────────────
-  int r1 = 0, r5 = 0, r10 = 0, rtotal = 0;
-  for (int iter = 0; iter < 50; ++iter) {
+  // ─── Beam width comparison (greedy vs multi-probe) ──────────────────
+  std::vector<double> greedy_ms, multiprobe_ms;
+  for (int iter = 0; iter < 100; ++iter) {
     auto& query = ds.vectors[iter % ds.count];
-    auto gt = qe.search(query, 10);
-    auto cand = qe.search_cascade(query, 10);
+    auto t0 = Clock::now();
+    (void)qe.search_cascade(query, 10, 3, 1);
+    greedy_ms.push_back(to_ms(Clock::now() - t0));
 
-    std::unordered_set<std::string> gt_sics;
-    for (auto& r : gt) gt_sics.insert(r.sic_hex);
-
-    for (size_t j = 0; j < cand.size(); ++j) {
-      if (gt_sics.count(cand[j].sic_hex)) {
-        if (j == 0) ++r1;
-        if (j < 5) ++r5;
-        ++r10;
-      }
-    }
-    rtotal++;
+    t0 = Clock::now();
+    (void)qe.search_cascade(query, 10, 3, 3);
+    multiprobe_ms.push_back(to_ms(Clock::now() - t0));
   }
-  double recall1 = 100.0 * r1 / std::max(rtotal, 1);
-  double recall5 = 100.0 * r5 / std::max(rtotal * 5, 1);
-  double recall10 = 100.0 * r10 / std::max(rtotal * 10, 1);
-  std::cout << "  Recall@1    " << std::fixed << std::setprecision(1)
-            << recall1 << "%\n";
-  std::cout << "  Recall@5    " << std::setprecision(1)
-            << recall5 << "%\n";
-  std::cout << "  Recall@10   " << std::setprecision(1)
-            << recall10 << "%  (" << rtotal << " queries)\n";
+  Stats gs = compute_stats(greedy_ms);
+  Stats ms = compute_stats(multiprobe_ms);
+  double probe_slowdown = ms.p50 / gs.p50;
+  std::cout << "  Greedy (beam=1) p50=" << gs.p50 << " ms  p95=" << gs.p95 << " ms\n";
+  std::cout << "  Multi-probe(3) p50=" << ms.p50 << " ms  p95=" << ms.p95 << " ms\n";
+  std::cout << "  Slowdown       " << std::fixed << std::setprecision(2)
+            << probe_slowdown << "x\n";
+
+  // ─── Recall@1, @5, @10 ──────────────────────────────────────────────
+  auto measure_recall = [&](int beam, const std::string& label) {
+    int r1 = 0, r5 = 0, r10 = 0, rtotal = 0;
+    for (int iter = 0; iter < 50; ++iter) {
+      auto& query = ds.vectors[iter % ds.count];
+      auto gt = qe.search(query, 10);
+      auto cand = qe.search_cascade(query, 10, 3, beam);
+
+      std::unordered_set<std::string> gt_sics;
+      for (auto& r : gt) gt_sics.insert(r.sic_hex);
+
+      for (size_t j = 0; j < cand.size(); ++j) {
+        if (gt_sics.count(cand[j].sic_hex)) {
+          if (j == 0) ++r1;
+          if (j < 5) ++r5;
+          ++r10;
+        }
+      }
+      rtotal++;
+    }
+    double recall1 = 100.0 * r1 / std::max(rtotal, 1);
+    double recall5 = 100.0 * r5 / std::max(rtotal * 5, 1);
+    double recall10 = 100.0 * r10 / std::max(rtotal * 10, 1);
+    std::cout << "  " << label << "  R@1=" << std::fixed << std::setprecision(1)
+              << recall1 << "%  R@5=" << recall5 << "%  R@10=" << recall10
+              << "%  (" << rtotal << " q)\n";
+  };
+
+  measure_recall(1, "Greedy (beam=1)");
+  measure_recall(3, "Multi-probe(3)");
+
+  // ─── Trees comparison ────────────────────────────────────────────────
+  std::cout << "  --- Trees comparison (beam=3) ---\n";
+  int total_trees = qe.cascade_num_trees();
+  int tree_values[] = {3, 10, 20, total_trees};
+  for (int tv : tree_values) {
+    if (tv > total_trees) continue;
+
+    double t_latency = 0;
+    for (int iter = 0; iter < 100; ++iter) {
+      auto& query = ds.vectors[iter % ds.count];
+      auto t0 = Clock::now();
+      (void)qe.search_cascade(query, 10, tv, 3);
+      t_latency += to_ms(Clock::now() - t0);
+    }
+    double avg_ms = t_latency / 100.0;
+    double speedup = bs.p50 / avg_ms;
+
+    int r1 = 0, r5 = 0, r10 = 0, rtotal = 0;
+    for (int iter = 0; iter < 50; ++iter) {
+      auto& query = ds.vectors[iter % ds.count];
+      auto gt = qe.search(query, 10);
+      auto cand = qe.search_cascade(query, 10, tv, 3);
+      std::unordered_set<std::string> gt_sics;
+      for (auto& r : gt) gt_sics.insert(r.sic_hex);
+      for (size_t j = 0; j < cand.size(); ++j) {
+        if (gt_sics.count(cand[j].sic_hex)) {
+          if (j == 0) ++r1;
+          if (j < 5) ++r5;
+          ++r10;
+        }
+      }
+      rtotal++;
+    }
+    double recall1 = 100.0 * r1 / std::max(rtotal, 1);
+    double recall5 = 100.0 * r5 / std::max(rtotal * 5, 1);
+    double recall10 = 100.0 * r10 / std::max(rtotal * 10, 1);
+    std::string label = (tv == total_trees) ? "all" : std::to_string(tv);
+    std::cout << "  trees=" << label << "  " << std::fixed << std::setprecision(2)
+              << avg_ms << " ms  " << std::setprecision(1)
+              << speedup << "x speedup  R@1=" << recall1
+              << "%  R@5=" << recall5 << "%  R@10=" << recall10 << "%\n";
+  }
 }
 
 // ─── Memory Usage ─────────────────────────────────────────────────────

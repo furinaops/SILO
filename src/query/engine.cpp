@@ -158,10 +158,10 @@ void QueryEngine::build_cascade() {
 // ---------------------------------------------------------------------------
 
 std::vector<SearchResult> QueryEngine::search_cascade(
-    const std::vector<float>& query, int top_k) {
+    const std::vector<float>& query, int top_k, int num_trees, int beam_width) {
   if (!cascade_.is_built()) return {};
 
-  auto cascade_results = cascade_.search(query, top_k);
+  auto cascade_results = cascade_.search(query, top_k, num_trees, beam_width);
   std::vector<SearchResult> results;
   results.reserve(cascade_results.size());
 

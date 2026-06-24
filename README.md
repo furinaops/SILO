@@ -257,4 +257,4 @@ MIT — do what you want, just don't blame me.
 - **DeepSeek V4** for KV cache hierarchical partitioning inspiration
 - **9th-grade maths** for the factor tree (128 → 64 → 32 → 16)
 - **Intel Core i3-2120** for forcing me to optimize
-- **YOU** (reader) for reading this far
+- **YOU** for reading this far

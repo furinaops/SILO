@@ -46,7 +46,8 @@ class CascadeEngine {
 
   std::vector<CascadeResult> search(const std::vector<float>& query,
                                     int top_k,
-                                    int num_probe_trees = 3);
+                                    int num_trees = 3,
+                                    int beam_width = 3);
 
   bool is_built() const { return !trees_.empty(); }
   int num_trees() const { return trees_.size(); }
@@ -67,8 +68,11 @@ class CascadeEngine {
               std::vector<int>& assignments_out);
   void compute_mean(const std::vector<int>& indices, int count,
                     std::vector<float>& mean_out);
-  void search_tree(const CascadeTree& tree, const float* query,
-                   std::vector<CascadeResult>& results) const;
+  void search_tree_greedy(const CascadeTree& tree, const float* query,
+                          std::vector<CascadeResult>& results) const;
+  void search_tree_multiprobe(const CascadeTree& tree, const float* query,
+                              int beam_width,
+                              std::vector<CascadeResult>& results) const;
 };
 
 } // namespace silo::index

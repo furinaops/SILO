@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <iostream>
 #include <limits>
 #include <numeric>
 #include <queue>
@@ -196,7 +197,7 @@ void CascadeEngine::build(const std::vector<std::vector<float>>& vectors,
 // Greedy descent on a single tree
 // ---------------------------------------------------------------------------
 
-void CascadeEngine::search_tree(const CascadeTree& tree, const float* query,
+void CascadeEngine::search_tree_greedy(const CascadeTree& tree, const float* query,
                                 std::vector<CascadeResult>& results) const {
   const CascadeNode* node = tree.root.get();
 
@@ -232,16 +233,102 @@ void CascadeEngine::search_tree(const CascadeTree& tree, const float* query,
 }
 
 // ---------------------------------------------------------------------------
+// Multi-probe descent (beam search) on a single tree
+// ---------------------------------------------------------------------------
+
+void CascadeEngine::search_tree_multiprobe(const CascadeTree& tree,
+                                           const float* query,
+                                           int beam_width,
+                                           std::vector<CascadeResult>& results) const {
+  // beam: (node, placeholder_score)
+  using BeamEntry = std::pair<const CascadeNode*, float>;
+  std::vector<BeamEntry> beam;
+  beam.emplace_back(tree.root.get(), 0.0f);
+
+  for (int level = 0; level < 3; ++level) {
+    std::vector<BeamEntry> candidates;
+
+    for (auto& entry : beam) {
+      const CascadeNode* node = entry.first;
+      if (!node || node->num_centroids == 0) continue;
+      int nc = node->num_centroids;
+      const float* cents = node->centroids.data();
+
+      for (int i = 0; i < nc; ++i) {
+        float sim = query::cosine_similarity(query, &cents[i * dimension_], dimension_);
+        int child_idx = (i < nc / 2) ? 0 : 1;
+        if (child_idx < static_cast<int>(node->children.size())) {
+          candidates.emplace_back(node->children[child_idx], sim);
+        }
+      }
+    }
+
+    if (candidates.empty()) break;
+
+    std::sort(candidates.begin(), candidates.end(),
+              [](const BeamEntry& a, const BeamEntry& b) {
+                return a.second > b.second;
+              });
+
+    beam.clear();
+    for (auto& c : candidates) {
+      bool dup = false;
+      for (auto& b : beam) {
+        if (b.first == c.first) { dup = true; break; }
+      }
+      if (!dup) {
+        beam.push_back(c);
+        if (static_cast<int>(beam.size()) >= beam_width) break;
+      }
+    }
+  }
+
+  // Collect vectors from all leaf nodes in the beam
+  for (auto& entry : beam) {
+    const CascadeNode* leaf = entry.first;
+    if (!leaf) continue;
+    for (int vid : leaf->vector_ids) {
+      float sim = query::cosine_similarity(query, &vectors_flat_[vid * dimension_], dimension_);
+      results.push_back({vid, sim});
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Resolve --trees special values: auto (-1) → sqrt heuristic, all (0) → total
+// ---------------------------------------------------------------------------
+
+static int resolve_tree_count(int requested, int total) {
+  if (requested == -1) {  // auto
+    int heuristic = static_cast<int>(std::sqrt(static_cast<double>(total)));
+    return std::max(3, std::min(heuristic, total));
+  }
+  if (requested == 0) return total;  // all
+  if (requested > total) {
+    std::cerr << "[WARN] Requested " << requested << " trees, only "
+              << total << " exist. Using all.\n";
+    return total;
+  }
+  return std::max(1, requested);
+}
+
+// ---------------------------------------------------------------------------
 // Public search with tree pre-filter
 // ---------------------------------------------------------------------------
 
 std::vector<CascadeResult> CascadeEngine::search(const std::vector<float>& query,
                                                   int top_k,
-                                                  int num_probe_trees) {
+                                                  int num_trees,
+                                                  int beam_width) {
   std::vector<CascadeResult> all_results;
   if (trees_.empty() || num_vectors_ == 0) return all_results;
 
   const float* qdata = query.data();
+
+  // Resolve special values and clamp
+  int total = static_cast<int>(trees_.size());
+  int probe = resolve_tree_count(num_trees, total);
+  if (probe <= 0) probe = 1;
 
   // Pre-filter trees by comparing to tree mean vectors
   struct Candidate {
@@ -249,25 +336,33 @@ std::vector<CascadeResult> CascadeEngine::search(const std::vector<float>& query
     float score;
   };
   std::vector<Candidate> candidates;
-  candidates.reserve(trees_.size());
+  candidates.reserve(total);
 
-  for (size_t t = 0; t < trees_.size(); ++t) {
+  for (int t = 0; t < total; ++t) {
     float sim = query::cosine_similarity(qdata, trees_[t].tree_mean.data(), dimension_);
-    candidates.push_back({static_cast<int>(t), sim});
+    candidates.push_back({t, sim});
   }
 
   // Pick top-k trees
-  int probe = std::min(num_probe_trees, static_cast<int>(trees_.size()));
+  std::partial_sort(candidates.begin(), candidates.begin() + std::min(probe, total),
+                    candidates.end(),
+                    [](const Candidate& a, const Candidate& b) {
+                      return a.score > b.score;
+                    });
   std::partial_sort(candidates.begin(), candidates.begin() + probe,
                     candidates.end(),
                     [](const Candidate& a, const Candidate& b) {
                       return a.score > b.score;
                     });
 
-  // Greedy descent in selected trees
-  all_results.reserve(probe * 16);
+  // Descent in selected trees (greedy or multi-probe)
+  all_results.reserve(probe * (beam_width > 1 ? 48 : 16));
   for (int i = 0; i < probe; ++i) {
-    search_tree(trees_[candidates[i].index], qdata, all_results);
+    if (beam_width > 1) {
+      search_tree_multiprobe(trees_[candidates[i].index], qdata, beam_width, all_results);
+    } else {
+      search_tree_greedy(trees_[candidates[i].index], qdata, all_results);
+    }
   }
 
   // Global top-k via partial sort

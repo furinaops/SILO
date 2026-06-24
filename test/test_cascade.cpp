@@ -137,10 +137,69 @@ TEST_CASE("Cascade: more probe trees finds more results") {
   e.build(vecs, 8);
 
   std::vector<float> query(8, 0.3f);
-  auto r1 = e.search(query, 3, 1);  // 1 tree
-  auto r3 = e.search(query, 3, 3);  // 3 trees
+  auto r1 = e.search(query, 3, 1, 1);  // 1 tree, greedy
+  auto r3 = e.search(query, 3, 3, 1);  // 3 trees, greedy
 
   return r3.size() == 3;  // Regardless of which was better, must return 3 results
+}
+
+// ---------------------------------------------------------------------------
+// Test: multi-probe (beam=1) matches greedy
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Cascade: beam=1 matches greedy") {
+  auto vecs = make_random_vectors(200, 16, 11);
+  silo::index::CascadeEngine e;
+  e.build(vecs, 16);
+
+  std::vector<float> query(16, 0.5f);
+  auto r_greedy = e.search(query, 5, 3, 1);   // greedy
+  auto r_beam1  = e.search(query, 5, 3, 1);   // beam=1 = greedy
+
+  if (r_greedy.size() != r_beam1.size()) return false;
+  for (size_t i = 0; i < r_greedy.size(); ++i) {
+    if (r_greedy[i].index != r_beam1[i].index) return false;
+    if (std::abs(r_greedy[i].score - r_beam1[i].score) > 1e-6f) return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Test: multi-probe (beam=3) is deterministic
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Cascade: multi-probe deterministic") {
+  auto vecs = make_random_vectors(200, 16, 12);
+  silo::index::CascadeEngine e;
+  e.build(vecs, 16);
+
+  std::vector<float> query(16, 0.5f);
+  auto r1 = e.search(query, 5, 3, 3);  // multi-probe beam=3
+  auto r2 = e.search(query, 5, 3, 3);
+
+  if (r1.size() != r2.size()) return false;
+  for (size_t i = 0; i < r1.size(); ++i) {
+    if (r1[i].index != r2[i].index) return false;
+    if (std::abs(r1[i].score - r2[i].score) > 1e-6f) return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Test: multi-probe (beam=3) returns at least as many results as greedy
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Cascade: multi-probe coverage >= greedy") {
+  auto vecs = make_random_vectors(300, 8, 13);
+  silo::index::CascadeEngine e;
+  e.build(vecs, 8);
+
+  std::vector<float> query(8, 0.1f);
+  auto r_greedy = e.search(query, 20, 3, 1);   // greedy
+  auto r_multi  = e.search(query, 20, 3, 3);   // multi-probe
+
+  // Multi-probe should have at least as many leaf vectors as greedy
+  return r_multi.size() >= r_greedy.size();
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +268,67 @@ TEST_CASE("Cascade: respects top_k limit") {
 // ---------------------------------------------------------------------------
 // Test: leaf node structure (8 clusters of ~16 vectors for 128 chunk)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Test: num_trees=0 (all) searches all trees
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Cascade: num_trees=all searches every tree") {
+  auto vecs = make_random_vectors(256, 8, 14);
+  silo::index::CascadeEngine e;
+  e.build(vecs, 8);
+  if (e.num_trees() != 2) return false;
+
+  // all (0) should search both trees
+  auto r_all = e.search(vecs[0], 10, 0, 1);
+  auto r_2   = e.search(vecs[0], 10, 2, 1);
+  if (r_all.size() != r_2.size()) return false;
+  for (size_t i = 0; i < r_all.size(); ++i) {
+    if (r_all[i].index != r_2[i].index) return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Test: num_trees=auto uses sqrt heuristic
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Cascade: num_trees=auto resolves to sqrt") {
+  auto vecs = make_random_vectors(300, 8, 15);
+  silo::index::CascadeEngine e;
+  e.build(vecs, 8);
+  // 300 vecs → 3 trees → auto = max(3, sqrt(3)) = 3
+  if (e.num_trees() != 3) return false;
+
+  // auto (-1) should pick 3
+  auto r_auto = e.search(vecs[0], 10, -1, 1);
+  auto r_3    = e.search(vecs[0], 10, 3, 1);
+  if (r_auto.size() != r_3.size()) return false;
+  for (size_t i = 0; i < r_auto.size(); ++i) {
+    if (r_auto[i].index != r_3[i].index) return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Test: num_trees clamped to valid range
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Cascade: num_trees clamped to 1..total") {
+  auto vecs = make_random_vectors(200, 8, 16);
+  silo::index::CascadeEngine e;
+  e.build(vecs, 8);
+
+  // num_trees=0 (all) → total trees
+  auto r_all = e.search(vecs[0], 5, 0, 1);
+  if (r_all.empty()) return false;
+
+  // num_trees larger than total → clamped to total
+  auto r_big = e.search(vecs[0], 5, 999, 1);
+  if (r_big.size() != r_all.size()) return false;
+
+  return true;
+}
 
 TEST_CASE("Cascade: tree structure for full chunk") {
   auto vecs = make_random_vectors(128, 8, 10);

@@ -5,8 +5,10 @@
 #include "storage/engine.h"
 
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <ctime>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -42,8 +44,10 @@ void print_help() {
     "  /fetch --sic <hex>                    Fetch a vector by SIC\n"
     "  /compact                              Purge tombstoned records\n"
     "  /build-cascade                        Build CASCADE approximate index\n"
-    "  /search --vec [x,y,...] --top <n> [--algo cascade]\n"
-    "                                        Search top-K (brute-force or cascade)\n"
+  "  /search --vec [x,y,...] --top <n> [--algo cascade] [--trees <N>|auto|all] [--probe <N>]\n"
+  "                                        Search top-K (brute-force or cascade;\n"
+  "                                        --trees: number of trees to probe (default 3, auto, all)\n"
+  "                                        --probe: beam width for multi-probe descent (1=greedy, default=3)\n"
     "  /status                               Show database status\n"
     "  /help                                 Show this help\n"
     "  /exit                                 Exit SILO\n"
@@ -224,6 +228,30 @@ int main(int argc, char* argv[]) {
           auto algo_it = cmd.args.find("algo");
           bool use_cascade = (algo_it != cmd.args.end() && algo_it->second == "cascade");
 
+          auto probe_it = cmd.args.find("probe");
+          int beam_width = 3;
+          if (probe_it != cmd.args.end()) {
+            beam_width = std::stoi(probe_it->second);
+            if (beam_width < 1) beam_width = 1;
+          }
+
+          int num_trees = 3;
+          std::string trees_mode;
+          auto trees_it = cmd.args.find("trees");
+          if (trees_it != cmd.args.end()) {
+            std::string val = trees_it->second;
+            if (val == "all") {
+              num_trees = 0;
+              trees_mode = "all";
+            } else if (val == "auto") {
+              num_trees = -1;
+              trees_mode = "auto";
+            } else {
+              num_trees = std::stoi(val);
+              trees_mode = std::to_string(num_trees);
+            }
+          }
+
           std::vector<silo::query::SearchResult> results;
           if (use_cascade) {
             if (!qe.cascade_is_built()) {
@@ -234,7 +262,29 @@ int main(int argc, char* argv[]) {
               }
               results = qe.search(query, top_k);
             } else {
-              results = qe.search_cascade(query, top_k);
+              auto t0 = std::chrono::steady_clock::now();
+              results = qe.search_cascade(query, top_k, num_trees, beam_width);
+              double elapsed = std::chrono::duration<double, std::milli>(
+                  std::chrono::steady_clock::now() - t0).count();
+
+              int total_trees = qe.cascade_num_trees();
+              int actual = (num_trees == 0) ? total_trees :
+                           (num_trees == -1) ? std::max(3, std::min(
+                               static_cast<int>(std::sqrt(total_trees)), total_trees)) :
+                           std::min(std::max(num_trees, 1), total_trees);
+
+              if (!cmd.json) {
+                if (!trees_mode.empty()) {
+                  std::cout << "[INFO] Searching " << actual << " trees ("
+                            << trees_mode << ", out of " << total_trees
+                            << " total). Beam width: " << beam_width << ".\n";
+                } else {
+                  std::cout << "[INFO] Searching " << actual << " trees (out of "
+                            << total_trees << " total). Beam width: " << beam_width << ".\n";
+                }
+                std::cout << "[INFO] Search completed in "
+                          << std::fixed << std::setprecision(2) << elapsed << " ms.\n";
+              }
             }
           } else {
             results = qe.search(query, top_k);
