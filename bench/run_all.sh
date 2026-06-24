@@ -51,7 +51,8 @@ echo -e "\n── SILO Benchmarks ──"
 
 for data in "$DATA_DIR"/dim128_1000_random.bin "$DATA_DIR"/dim384_1000_random.bin \
             "$DATA_DIR"/dim768_1000_random.bin "$DATA_DIR"/dim128_5000_random.bin \
-            "$DATA_DIR"/dim384_5000_random.bin; do
+            "$DATA_DIR"/dim384_5000_random.bin "$DATA_DIR"/dim128_10000_random.bin \
+            "$DATA_DIR"/dim384_10000_random.bin "$DATA_DIR"/dim768_5000_random.bin; do
     if [ -f "$data" ]; then
         "$BENCH_DIR/runner" "$data" 2>&1
     fi
@@ -111,6 +112,8 @@ echo "Collecting results..."
     echo "- SQLite uses linear scan over BLOBs with Python cosine — no index"
     echo "- Python/numpy loop is pure Python cosine similarity (no SIMD)"
     echo "- SILO uses AVX2 fused multiply-add on compatible CPUs"
+    echo "- CASCADE: approximate index built via /build-cascade; greedy descent search"
+    echo "- CASCADE recall@10 measured against brute-force ground truth over 20 queries"
 } > "$RESULTS"
 
 echo -e "\n=========================================="

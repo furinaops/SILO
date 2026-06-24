@@ -5,8 +5,10 @@
 #include "storage/engine.h"
 
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <ctime>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -41,6 +43,11 @@ void print_help() {
     "  /delete --sic <hex>                   Delete a vector by SIC\n"
     "  /fetch --sic <hex>                    Fetch a vector by SIC\n"
     "  /compact                              Purge tombstoned records\n"
+    "  /build-cascade                        Build CASCADE approximate index\n"
+  "  /search --vec [x,y,...] --top <n> [--algo cascade] [--trees <N>|auto|all] [--probe <N>]\n"
+  "                                        Search top-K (brute-force or cascade;\n"
+  "                                        --trees: number of trees to probe (default 3, auto, all)\n"
+  "                                        --probe: beam width for multi-probe descent (1=greedy, default=3)\n"
     "  /status                               Show database status\n"
     "  /help                                 Show this help\n"
     "  /exit                                 Exit SILO\n"
@@ -204,9 +211,9 @@ int main(int argc, char* argv[]) {
         auto top_it = cmd.args.find("top");
         if (vec_it == cmd.args.end()) {
           if (cmd.json) {
-            std::cout << "{\"status\":\"error\",\"message\":\"Usage: /search --vec [x,y,...] --top <n>\"}\n";
+            std::cout << "{\"status\":\"error\",\"message\":\"Usage: /search --vec [x,y,...] --top <n> [--algo cascade]\"}\n";
           } else {
-            print_red("[ERROR] Usage: /search --vec [x,y,...] --top <n>\n");
+            print_red("[ERROR] Usage: /search --vec [x,y,...] --top <n> [--algo cascade]\n");
           }
           break;
         }
@@ -217,7 +224,72 @@ int main(int argc, char* argv[]) {
             top_k = std::stoi(top_it->second);
             if (top_k < 1) throw std::invalid_argument("top_k must be >= 1");
           }
-          auto results = qe.search(query, top_k);
+
+          auto algo_it = cmd.args.find("algo");
+          bool use_cascade = (algo_it != cmd.args.end() && algo_it->second == "cascade");
+
+          auto probe_it = cmd.args.find("probe");
+          int beam_width = 3;
+          if (probe_it != cmd.args.end()) {
+            beam_width = std::stoi(probe_it->second);
+            if (beam_width < 1) beam_width = 1;
+          }
+
+          int num_trees = 3;
+          std::string trees_mode;
+          auto trees_it = cmd.args.find("trees");
+          if (trees_it != cmd.args.end()) {
+            std::string val = trees_it->second;
+            if (val == "all") {
+              num_trees = 0;
+              trees_mode = "all";
+            } else if (val == "auto") {
+              num_trees = -1;
+              trees_mode = "auto";
+            } else {
+              num_trees = std::stoi(val);
+              trees_mode = std::to_string(num_trees);
+            }
+          }
+
+          std::vector<silo::query::SearchResult> results;
+          if (use_cascade) {
+            if (!qe.cascade_is_built()) {
+              if (cmd.json) {
+                std::cout << "{\"status\":\"error\",\"message\":\"No CASCADE index built. Run /build-cascade first. Falling back to brute-force.\"}\n";
+              } else {
+                print_red("[WARN] No CASCADE index built. Run /build-cascade first. Falling back to brute-force.\n");
+              }
+              results = qe.search(query, top_k);
+            } else {
+              auto t0 = std::chrono::steady_clock::now();
+              results = qe.search_cascade(query, top_k, num_trees, beam_width);
+              double elapsed = std::chrono::duration<double, std::milli>(
+                  std::chrono::steady_clock::now() - t0).count();
+
+              int total_trees = qe.cascade_num_trees();
+              int actual = (num_trees == 0) ? total_trees :
+                           (num_trees == -1) ? std::max(3, std::min(
+                               static_cast<int>(std::sqrt(total_trees)), total_trees)) :
+                           std::min(std::max(num_trees, 1), total_trees);
+
+              if (!cmd.json) {
+                if (!trees_mode.empty()) {
+                  std::cout << "[INFO] Searching " << actual << " trees ("
+                            << trees_mode << ", out of " << total_trees
+                            << " total). Beam width: " << beam_width << ".\n";
+                } else {
+                  std::cout << "[INFO] Searching " << actual << " trees (out of "
+                            << total_trees << " total). Beam width: " << beam_width << ".\n";
+                }
+                std::cout << "[INFO] Search completed in "
+                          << std::fixed << std::setprecision(2) << elapsed << " ms.\n";
+              }
+            }
+          } else {
+            results = qe.search(query, top_k);
+          }
+
           if (cmd.json) {
             print_json_search(results);
           } else {
@@ -225,6 +297,32 @@ int main(int argc, char* argv[]) {
               std::cout << "  " << (i + 1) << ". " << results[i].id
                         << " (sic=" << results[i].sic_hex
                         << ", score=" << results[i].score << ")\n";
+            }
+          }
+        } catch (const std::exception& e) {
+          if (cmd.json) {
+            std::cout << "{\"status\":\"error\",\"message\":\"" << json_escape(e.what()) << "\"}\n";
+          } else {
+            print_red("[ERROR] " + std::string(e.what()) + "\n");
+          }
+        }
+        break;
+      }
+
+      case silo::cli::Command::BUILD_CASCADE: {
+        try {
+          qe.build_cascade();
+          int n = qe.cascade_num_trees();
+          int total = qe.cascade_total_vectors();
+          if (cmd.json) {
+            std::cout << "{\"status\":\"ok\",\"action\":\"build-cascade\",\"trees\":" << n
+                      << ",\"vectors\":" << total << "}\n";
+          } else {
+            if (n == 0) {
+              print_red("[WARN] No vectors to index. Insert some vectors first.\n");
+            } else {
+              print_green("[OK] Built CASCADE index: " + std::to_string(n) +
+                          " trees, " + std::to_string(total) + " vectors\n");
             }
           }
         } catch (const std::exception& e) {

@@ -37,6 +37,7 @@ ParsedCommand parse(const std::string& line) {
   else if (token == "/compact") result.cmd = Command::COMPACT;
   else if (token == "/status") result.cmd = Command::STATUS;
   else if (token == "/help") result.cmd = Command::HELP;
+  else if (token == "/build-cascade") result.cmd = Command::BUILD_CASCADE;
   else if (token == "/exit") result.cmd = Command::EXIT;
 
   std::string key;

@@ -16,6 +16,7 @@ enum class Command {
   STATUS,
   HELP,
   EXIT,
+  BUILD_CASCADE,
 };
 
 struct ParsedCommand {
